@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>禪卡預約｜連線測試</title>
+<style>
+  body{margin:0;padding:24px 20px;background:#f6f3eb;color:#26352d;font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;font-size:16px;line-height:1.7}
+  h1{font-size:20px;margin:0 0 16px}
+  ol{padding-left:22px;margin:0 0 16px}
+  li{margin-bottom:6px}
+  .ok{color:#2e7d4f}.bad{color:#a9503f}.wait{color:#758078}
+  #result{background:#fffdf8;border:1px solid #e3dfd3;border-radius:4px;padding:14px;white-space:pre-wrap;word-break:break-all}
+  button{margin-top:16px;padding:10px 18px;border:0;border-radius:4px;background:#26352d;color:#fff;font-size:15px}
+</style>
+</head>
+<body>
+<h1>禪卡預約｜連線測試</h1>
+<ol>
+  <li id="s1" class="wait">啟動 LINE 登入</li>
+  <li id="s2" class="wait">取得登入憑證</li>
+  <li id="s3" class="wait">後端驗證身分並推播訊息</li>
+</ol>
+<div id="result">測試進行中，請稍候。</div>
+<button id="relogin" type="button">重新登入再測一次</button>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+// 這兩個值不是金鑰，可以公開
+var LIFF_ID = '2012656478-rqcbKIlt';
+var BACKEND_URL = 'https://script.google.com/macros/s/AKfycby0GEvhkxIYC9_43W_3b8ejza6vcfMD8J1Qa4Dz9rIHUVuCE23WZqToWXDJ1d_hmZES/exec';
+
+function mark(id, ok) {
+  var el = document.getElementById(id);
+  el.className = ok ? 'ok' : 'bad';
+  el.textContent += ok ? '：完成' : '：失敗';
+}
+function show(text) { document.getElementById('result').textContent = text; }
+
+document.getElementById('relogin').addEventListener('click', function () {
+  try { if (liff.isLoggedIn()) liff.logout(); } catch (e) {}
+  location.reload();
+});
+
+async function run() {
+  try {
+    await liff.init({ liffId: LIFF_ID });
+    if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+    mark('s1', true);
+  } catch (e) {
+    mark('s1', false);
+    show('LINE 登入啟動失敗。\n請把這段訊息傳給 Claude：\n' + (e && e.message ? e.message : e));
+    return;
+  }
+
+  var idToken = liff.getIDToken();
+  if (!idToken) {
+    mark('s2', false);
+    show('沒有拿到登入憑證。\n請確認 LIFF 的 Scopes 有勾選 openid 和 profile，再按「重新登入再測一次」。');
+    return;
+  }
+  mark('s2', true);
+
+  try {
+    var res = await fetch(BACKEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ idToken: idToken })
+    });
+    var data = await res.json();
+    if (data.ok) {
+      mark('s3', true);
+      show('測試成功。\n後端認得你是「' + data.name + '」。\n請回到 LINE 聊天室，看官方帳號有沒有傳訊息給你。');
+    } else {
+      mark('s3', false);
+      show('後端回報錯誤。\n請把這段訊息傳給 Claude：\n' + data.error);
+    }
+  } catch (e) {
+    mark('s3', false);
+    show('連不上後端。\n請把這段訊息傳給 Claude：\n' + (e && e.message ? e.message : e));
+  }
+}
+run();
+</script>
+</body>
+</html>
