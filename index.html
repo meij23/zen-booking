@@ -81,6 +81,7 @@ var D = null, A = null;
 var ui = { view:'c', step:1, svc:null, date:null, slot:null, done:null, tab:'book', showId:false, stale:false };
 var READY = null;
 var CACHE_KEY = 'zen_pub_v1';
+var T0 = Date.now(), TIMES = null;
 var $ = function(id){ return document.getElementById(id); };
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 function nice(d){ var x=new Date(d+'T12:00:00+08:00'); return (x.getMonth()+1)+'/'+x.getDate()+'（'+WD[x.getDay()]+'）'; }
@@ -133,7 +134,9 @@ function vCustomer(){
         '<div><button class="btn" data-act="pick" data-id="'+s.id+'">預約這個服務</button></div></div>';
     }).join('');
     if(!D.services.length) h+='<div class="card mute">目前沒有開放的服務。</div>';
-    h+='<div class="foot"><button data-act="admin">管理入口</button></div>';
+    // 只有管理者本人看得到；還沒設定管理者時才會暫時顯示，方便取得識別碼
+    if(!ui.stale && (D.isAdmin || D.adminUnset)) h+='<div class="foot"><button data-act="admin">管理入口</button></div>';
+    if(D.isAdmin && TIMES) h+='<div class="foot mute">載入時間：LINE 登入 '+TIMES.line+' 秒・後端資料 '+TIMES.data+' 秒</div>';
     if(ui.showId) h+='<div class="card"><div class="mute">請把下面這串識別碼，貼到 Apps Script 的指令碼屬性 ADMIN_USER_ID：</div><div style="word-break:break-all">'+esc(D.userId)+'</div></div>';
   }
   if(ui.step===2){
@@ -216,6 +219,7 @@ function vAdmin(){
   if(ui.tab==='set'){
     h+='<div class="card"><h3>設定</h3><label>新預約通知要寄到哪個 Email（留空就不寄）<input type="text" id="st-mail" value="'+esc(A.settings['通知Email'])+'"></label>'+
       '<label>預約頁上方的說明文字<textarea id="st-notice">'+esc(A.settings['預約頁說明'])+'</textarea></label>'+
+      '<label>客人自己取消的期限（開始前幾小時）<input type="number" id="st-cancel" min="0" max="72" value="'+esc(A.settings['取消期限小時'])+'"></label>'+
       '<label>收款說明（第 2 期會在服務後自動傳給客人）<textarea id="st-pay">'+esc(A.settings['收款說明'])+'</textarea></label>'+
       '<div><button class="btn" data-act="saveSet">儲存設定</button></div></div>';
   }
@@ -257,7 +261,7 @@ var ACT={
     await api('adminSaveService',{ service:{ id:id==='new'?'':id, name:g('name'), intro:g('intro'), price:g('price'), minutes:g('minutes'), mode:g('mode'), note:g('note'), active:$('sv-'+id+'-active').checked, tiered:$('sv-'+id+'-tiered').checked } });
     await loadA(); toast('服務已儲存');
   },
-  saveSet:async function(){ await api('adminSaveSettings',{ settings:{ '通知Email':val('st-mail'), '預約頁說明':val('st-notice'), '收款說明':val('st-pay') } }); await loadA(); toast('設定已儲存'); }
+  saveSet:async function(){ await api('adminSaveSettings',{ settings:{ '通知Email':val('st-mail'), '預約頁說明':val('st-notice'), '收款說明':val('st-pay'), '取消期限小時':val('st-cancel') } }); await loadA(); toast('設定已儲存'); }
 };
 var CHG={
   status:async function(d,v){ await api('adminSetBooking',{ bookingId:d.id, status:v }); await loadA(); },
@@ -284,7 +288,9 @@ function render(){
     READY = liff.init({ liffId:LIFF_ID });
     await READY;
     if(!liff.isLoggedIn()){ liff.login({ redirectUri:location.href }); return; }
+    var t1 = Date.now();
     await loadC();
+    TIMES = { line:((t1-T0)/1000).toFixed(1), data:((Date.now()-t1)/1000).toFixed(1) };
     render();
   }catch(e){
     $('app').innerHTML='<div class="wrap"><div class="card">頁面載入失敗：'+esc(e&&e.message?e.message:e)+'<div class="mute">請關閉後重新打開。如果一直出現，請把這段訊息傳給 Mei。</div></div></div>';
