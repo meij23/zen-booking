@@ -75,6 +75,7 @@ textarea{min-height:70px;resize:vertical}
 var LIFF_ID = '2012656478-rqcbKIlt';
 var BACKEND_URL = 'https://zen-booking.s99111154.workers.dev/';
 var BRAND = 'Mei 禪卡解讀';
+var OA_ADD_URL = 'https://line.me/R/ti/p/%40411uatai';
 
 var WD = ['日','一','二','三','四','五','六'];
 var D = null, A = null;
@@ -89,9 +90,24 @@ function ts(o){ return new Date(o.date+'T'+o.time+':00+08:00').getTime(); }
 function money(n){ return 'NT$ '+Number(n).toLocaleString(); }
 function toast(t){ var el=$('toast'); el.textContent=t; el.hidden=false; clearTimeout(toast.t); toast.t=setTimeout(function(){el.hidden=true;},3500); }
 
+function tokenExp(t){
+  try{ return JSON.parse(atob(t.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).exp*1000; }catch(e){ return 0; }
+}
+function relogin(){
+  try{ sessionStorage.setItem('zen_relog', String(Date.now())); }catch(e){}
+  try{ if(liff.isLoggedIn()) liff.logout(); }catch(e){}
+  liff.login({ redirectUri: location.href.split('#')[0] });
+}
+function recentlyRelogged(){
+  try{ return Date.now() - Number(sessionStorage.getItem('zen_relog')||0) < 60000; }catch(e){ return false; }
+}
 async function api(action, payload){
   await READY;
-  var body = Object.assign({ action:action, idToken:liff.getIDToken() }, payload||{});
+  var tok = liff.getIDToken();
+  if(!tok || tokenExp(tok) < Date.now() + 60000){
+    if(!recentlyRelogged()){ relogin(); throw new Error('登入逾時，正在重新登入'); }
+  }
+  var body = Object.assign({ action:action, idToken:tok }, payload||{});
   var res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(body) });
   var j = await res.json();
   if(!j.ok) throw new Error(j.error);
@@ -103,8 +119,12 @@ async function run(fn){
   $('busy').hidden=true;
   render();
 }
+async function checkFriend(){
+  try{ var f = await liff.getFriendship(); return !!f.friendFlag; }catch(e){ return null; } // 查不到就不擋
+}
 async function loadC(){
-  D = await api('init'); ui.stale = false;
+  var r = await Promise.all([ api('init'), checkFriend() ]);
+  D = r[0]; D.isFriend = r[1]; ui.stale = false;
   try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ services:D.services, slots:D.slots, notice:D.notice, cancelHours:D.cancelHours })); }catch(e){}
 }
 async function loadA(){ A = await api('adminInit'); }
@@ -160,8 +180,10 @@ function vCustomer(){
       '<label>怎麼稱呼你<input type="text" id="f-name" maxlength="30" value="'+esc(D.name)+'"></label>'+
       '<label>聯絡方式（選填）<input type="text" id="f-contact" maxlength="60" placeholder="手機或 Email"></label>'+
       '<label>這次想探索的主題或困惑（選填）<textarea id="f-topic" maxlength="500"></textarea></label>'+
+      (D.isFriend===false ? '<div class="card" style="border-color:var(--warn)"><b>請先加入官方帳號好友</b><div>加入好友後，才收得到預約成功通知和前一天的提醒。</div>'+
+        '<div class="row"><button class="btn" data-act="addFriend">加入好友</button><button class="btn ghost" data-act="recheck">我加好了</button></div></div>' : '')+
       '<label class="chk"><input type="checkbox" id="f-agree"><span>我了解預約資料只用於安排這次服務與提醒，不會提供給其他人；想刪除資料可以隨時告訴我。</span></label>'+
-      '<div class="row between"><button class="btn ghost" data-act="back2">上一步</button><button class="btn" data-act="book">送出預約</button></div></div>';
+      '<div class="row between"><button class="btn ghost" data-act="back2">上一步</button><button class="btn" data-act="book" '+(D.isFriend===false?'disabled':'')+'>送出預約</button></div></div>';
   }
   if(ui.step===4&&ui.done){
     h+='<div class="card"><h3>預約完成</h3><div class="mute">LINE 會收到這則通知：</div><div class="bubble">'+esc(ui.done.message)+'</div>'+
@@ -236,11 +258,20 @@ var ACT={
   back2:function(){ ui.step=2; },
   home:async function(){ ui.step=1; ui.svc=ui.slot=ui.date=null; await loadC(); },
   book:async function(){
+    if(D.isFriend===false) throw new Error('請先加入官方帳號好友');
     if(!$('f-agree').checked) throw new Error('請先勾選同意資料使用說明');
     try{
       ui.done=await api('book',{ serviceId:ui.svc, slotId:ui.slot, name:val('f-name'), contact:val('f-contact'), topic:val('f-topic'), agree:true });
       ui.step=4;
     }catch(e){ await loadC(); ui.step=2; ui.slot=null; throw e; }
+  },
+  addFriend:function(){
+    try{ liff.openWindow({ url:OA_ADD_URL, external:false }); }catch(e){ location.href = OA_ADD_URL; }
+  },
+  recheck:async function(){
+    D.isFriend = await checkFriend();
+    if(D.isFriend===false) throw new Error('還沒看到你加入好友，加好後再按一次');
+    toast('已確認加入好友，可以送出預約了');
   },
   cancel:async function(d){ await api('cancel',{ bookingId:d.id }); await loadC(); toast('預約已取消'); },
   admin:async function(){
@@ -293,6 +324,7 @@ function render(){
     TIMES = { line:((t1-T0)/1000).toFixed(1), data:((Date.now()-t1)/1000).toFixed(1) };
     render();
   }catch(e){
+    if(String(e && e.message).indexOf('登入') >= 0 && !recentlyRelogged()){ relogin(); return; }
     $('app').innerHTML='<div class="wrap"><div class="card">頁面載入失敗：'+esc(e&&e.message?e.message:e)+'<div class="mute">請關閉後重新打開。如果一直出現，請把這段訊息傳給 Mei。</div></div></div>';
   }
 })();
