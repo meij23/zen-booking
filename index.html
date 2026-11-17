@@ -73,7 +73,7 @@ textarea{min-height:70px;resize:vertical}
 <script>
 // 這三個值不是金鑰，可以公開
 var LIFF_ID = '2012656478-rqcbKIlt';
-var BACKEND_URL = 'https://script.google.com/macros/s/AKfycby0GEvhkxIYC9_43W_3b8ejza6vcfMD8J1Qa4Dz9rIHUVuCE23WZqToWXDJ1d_hmZES/exec';
+var BACKEND_URL = 'https://zen-booking.s99111154.workers.dev/';
 var BRAND = 'Mei 禪卡解讀';
 
 var WD = ['日','一','二','三','四','五','六'];
@@ -217,7 +217,7 @@ function vAdmin(){
     h+='<div class="card"><h3>練習期階梯價</h3>'+A.tiers.map(function(t,i){return '<div>第 '+(i+1)+' 階：到第 '+esc(t.upto)+' 位為止，'+money(t.price)+'</div>';}).join('')+'<div class="mute">超過最後一階就恢復原價。級距的修改畫面在第 2 期加入。</div></div>';
   }
   if(ui.tab==='set'){
-    h+='<div class="card"><h3>設定</h3><label>新預約通知要寄到哪個 Email（留空就不寄）<input type="text" id="st-mail" value="'+esc(A.settings['通知Email'])+'"></label>'+
+    h+='<div class="card"><h3>設定</h3><div class="mute">有新預約或取消時，LINE 會直接通知你。</div>'+
       '<label>預約頁上方的說明文字<textarea id="st-notice">'+esc(A.settings['預約頁說明'])+'</textarea></label>'+
       '<label>客人自己取消的期限（開始前幾小時）<input type="number" id="st-cancel" min="0" max="72" value="'+esc(A.settings['取消期限小時'])+'"></label>'+
       '<label>收款說明（第 2 期會在服務後自動傳給客人）<textarea id="st-pay">'+esc(A.settings['收款說明'])+'</textarea></label>'+
@@ -261,7 +261,7 @@ var ACT={
     await api('adminSaveService',{ service:{ id:id==='new'?'':id, name:g('name'), intro:g('intro'), price:g('price'), minutes:g('minutes'), mode:g('mode'), note:g('note'), active:$('sv-'+id+'-active').checked, tiered:$('sv-'+id+'-tiered').checked } });
     await loadA(); toast('服務已儲存');
   },
-  saveSet:async function(){ await api('adminSaveSettings',{ settings:{ '通知Email':val('st-mail'), '預約頁說明':val('st-notice'), '收款說明':val('st-pay'), '取消期限小時':val('st-cancel') } }); await loadA(); toast('設定已儲存'); }
+  saveSet:async function(){ await api('adminSaveSettings',{ settings:{ '預約頁說明':val('st-notice'), '收款說明':val('st-pay'), '取消期限小時':val('st-cancel') } }); await loadA(); toast('設定已儲存'); }
 };
 var CHG={
   status:async function(d,v){ await api('adminSetBooking',{ bookingId:d.id, status:v }); await loadA(); },
