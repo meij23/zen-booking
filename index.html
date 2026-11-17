@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mei 禪卡解讀｜預約</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@500;700&family=Noto+Serif+TC:wght@500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Old+Mincho:wght@500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
 <style>
 :root{--bg:#f6f3eb;--card:#fffdf8;--ink:#26352d;--mute:#758078;--line:#e3dfd3;--brand:#5c7662;--soft:#e7ece4;--gold:#96743f;--ok:#2e7d4f;--warn:#a86a00;--crit:#a9503f;
 --display:"Zen Old Mincho","Noto Serif TC","Songti TC",serif;--body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
@@ -65,7 +65,7 @@ textarea{min-height:70px;resize:vertical}
 </head>
 <body>
 <div class="top"><h1 id="brand"></h1><span class="mute" id="hello"></span></div>
-<div id="app"><div class="wrap"><div class="mute">載入中，請稍候。</div></div></div>
+<div id="app"><div class="wrap"><div class="art"><i class="sun"></i><i class="hA"></i><i class="hB"></i></div><h2>慢慢來，<br>先聽聽自己怎麼說。</h2><div class="mute">正在載入服務與時段…</div></div></div>
 <div id="busy" hidden>處理中</div>
 <div id="toast" hidden></div>
 
@@ -78,7 +78,9 @@ var BRAND = 'Mei 禪卡解讀';
 
 var WD = ['日','一','二','三','四','五','六'];
 var D = null, A = null;
-var ui = { view:'c', step:1, svc:null, date:null, slot:null, done:null, tab:'book', showId:false };
+var ui = { view:'c', step:1, svc:null, date:null, slot:null, done:null, tab:'book', showId:false, stale:false };
+var READY = null;
+var CACHE_KEY = 'zen_pub_v1';
 var $ = function(id){ return document.getElementById(id); };
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
 function nice(d){ var x=new Date(d+'T12:00:00+08:00'); return (x.getMonth()+1)+'/'+x.getDate()+'（'+WD[x.getDay()]+'）'; }
@@ -87,6 +89,7 @@ function money(n){ return 'NT$ '+Number(n).toLocaleString(); }
 function toast(t){ var el=$('toast'); el.textContent=t; el.hidden=false; clearTimeout(toast.t); toast.t=setTimeout(function(){el.hidden=true;},3500); }
 
 async function api(action, payload){
+  await READY;
   var body = Object.assign({ action:action, idToken:liff.getIDToken() }, payload||{});
   var res = await fetch(BACKEND_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(body) });
   var j = await res.json();
@@ -99,7 +102,10 @@ async function run(fn){
   $('busy').hidden=true;
   render();
 }
-async function loadC(){ D = await api('init'); }
+async function loadC(){
+  D = await api('init'); ui.stale = false;
+  try{ localStorage.setItem(CACHE_KEY, JSON.stringify({ services:D.services, slots:D.slots, notice:D.notice, cancelHours:D.cancelHours })); }catch(e){}
+}
 async function loadA(){ A = await api('adminInit'); }
 
 /* ---------- 客人端 ---------- */
@@ -108,6 +114,8 @@ function priceHtml(s){ return '<span class="price">'+money(s.price)+'</span>'+(s
 
 function vCustomer(){
   var h='';
+  if(ui.step>=2 && ui.step<=3 && !svcOf(ui.svc)){ ui.step=1; ui.svc=null; }
+  if(ui.step===3 && !D.slots.some(function(x){return x.id===ui.slot;})){ ui.step=2; ui.slot=null; }
   if(ui.step===1){
     h+='<div class="art"><i class="sun"></i><i class="hA"></i><i class="hB"></i></div><h2>慢慢來，<br>先聽聽自己怎麼說。</h2>';
     if(D.notice) h+='<div class="mute">'+esc(D.notice)+'</div>';
@@ -232,6 +240,7 @@ var ACT={
   },
   cancel:async function(d){ await api('cancel',{ bookingId:d.id }); await loadC(); toast('預約已取消'); },
   admin:async function(){
+    if(ui.stale) throw new Error('還在載入，請稍候一下再點');
     if(D.isAdmin){ await loadA(); ui.view='a'; }
     else if(D.adminUnset){ ui.showId=true; }
     else throw new Error('這是管理者專用的入口');
@@ -266,8 +275,14 @@ function render(){
 
 (async function start(){
   $('brand').textContent=BRAND;
+  // 先用上次存下的服務和時段把畫面畫出來，同時在背景向後端拿最新資料
   try{
-    await liff.init({ liffId:LIFF_ID });
+    var c = JSON.parse(localStorage.getItem(CACHE_KEY)||'null');
+    if(c && c.services){ D = Object.assign({ mine:[], name:'', isAdmin:false, adminUnset:false, userId:'' }, c); ui.stale = true; render(); }
+  }catch(e){}
+  try{
+    READY = liff.init({ liffId:LIFF_ID });
+    await READY;
     if(!liff.isLoggedIn()){ liff.login({ redirectUri:location.href }); return; }
     await loadC();
     render();
