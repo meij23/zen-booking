@@ -61,6 +61,14 @@ textarea{min-height:70px;resize:vertical}
 #busy{position:fixed;inset:0;background:#f6f3ebcc;display:flex;align-items:center;justify-content:center;z-index:8;font-family:var(--display);letter-spacing:.2em}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--ink);color:#fffdf8;padding:9px 18px;border-radius:3px;font-size:14px;z-index:9;max-width:90%}
 [hidden]{display:none!important}
+.rec{border-left:3px solid var(--brand);padding:2px 0 2px 12px;display:flex;flex-direction:column;gap:4px}
+.private{background:var(--bg);border-radius:3px;padding:6px 10px;font-size:13px}
+.pre{white-space:pre-wrap}
+.lk{border:0;background:none;color:var(--brand);text-decoration:underline;cursor:pointer;padding:0;font:inherit}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--mute);font-weight:500;font-size:12.5px}
+.scroll{overflow-x:auto}
 </style>
 </head>
 <body>
@@ -76,10 +84,12 @@ var LIFF_ID = '2012656478-rqcbKIlt';
 var BACKEND_URL = 'https://zen-booking.s99111154.workers.dev/';
 var BRAND = 'Mei 禪卡解讀';
 var OA_ADD_URL = 'https://line.me/R/ti/p/%40411uatai';
+var OA_MSG_URL = 'https://line.me/R/oaMessage/%40411uatai/?';
 
 var WD = ['日','一','二','三','四','五','六'];
 var D = null, A = null;
-var ui = { view:'c', step:1, svc:null, date:null, slot:null, done:null, tab:'book', showId:false, stale:false };
+var TOPICS = ['財務','工作','感情','家庭','自我探索','其他'];
+var ui = { cq:'', custs:null, cust:null, editRec:null, prefill:null, view:'c', step:1, svc:null, date:null, slot:null, done:null, tab:'book', showId:false, stale:false };
 var READY = null;
 var CACHE_KEY = 'zen_pub_v1';
 var T0 = Date.now(), TIMES = null;
@@ -186,7 +196,11 @@ function vCustomer(){
       '<div class="row between"><button class="btn ghost" data-act="back2">上一步</button><button class="btn" data-act="book" '+(D.isFriend===false?'disabled':'')+'>送出預約</button></div></div>';
   }
   if(ui.step===4&&ui.done){
-    h+='<div class="card"><h3>預約完成</h3><div class="mute">LINE 會收到這則通知：</div><div class="bubble">'+esc(ui.done.message)+'</div>'+
+    h+='<div class="card"><h3>預約完成</h3>'+
+      '<div class="card" style="border-color:var(--brand);box-shadow:none"><b>最後一步：把預約資料傳給我</b>'+
+      '<div>按下按鈕會打開和我的聊天室，訊息已經幫你填好，按「傳送」就完成。也請順便加入好友，才收得到前一天的提醒。</div>'+
+      '<div><button class="btn" data-act="sendBack">回傳預約資料</button></div></div>'+
+      '<div class="mute">你的預約內容：</div><div class="bubble">'+esc(ui.done.message)+'</div>'+
       '<div><button class="btn ghost" data-act="home">回到首頁</button></div></div>';
   }
   return '<div class="wrap">'+h+'</div>';
@@ -195,7 +209,7 @@ function vCustomer(){
 /* ---------- 管理端 ---------- */
 function bookingItem(b){
   var paidVal = b.paid==='已收款' ? (b.method||'現金') : '未收款';
-  return '<div class="item"><div class="row between"><b>'+nice(b.date)+' '+b.time+'　'+esc(b.name)+'</b><span class="pill s-'+b.status+'">'+b.status+'</span></div>'+
+  return '<div class="item"><div class="row between"><b>'+nice(b.date)+' '+b.time+'　'+(b.cust?'<button class="lk" data-act="openCust" data-id="'+b.cust+'" data-bid="'+b.id+'">'+esc(b.name)+'</button>':esc(b.name))+'</b><span class="pill s-'+b.status+'">'+b.status+'</span></div>'+
     '<div>'+esc(b.service)+'　'+money(b.price)+'</div>'+(b.topic?'<div class="mute">主題：'+esc(b.topic)+'</div>':'')+
     '<div class="form"><label>狀態<select data-chg="status" data-id="'+b.id+'">'+['已確認','已完成','已取消','未出席'].map(function(x){return '<option '+(x===b.status?'selected':'')+'>'+x+'</option>';}).join('')+'</select></label>'+
     '<label>收款<select data-chg="paid" data-id="'+b.id+'">'+['未收款','現金','轉帳','LINE Pay'].map(function(x){return '<option '+(x===paidVal?'selected':'')+'>'+x+'</option>';}).join('')+'</select></label></div></div>';
@@ -214,7 +228,7 @@ function svcForm(s){
     '<div><button class="btn" data-act="saveSvc" data-id="'+id+'">儲存</button></div></div>';
 }
 function vAdmin(){
-  var tabs=[['book','預約'],['slot','時段'],['svc','服務'],['set','設定']];
+  var tabs=[['book','預約'],['cust','客戶'],['slot','時段'],['svc','服務'],['set','設定']];
   var h='<div class="row between"><div class="tabs">'+tabs.map(function(t){return '<button class="'+(ui.tab===t[0]?'on':'')+'" data-act="tab" data-t="'+t[0]+'">'+t[1]+'</button>';}).join('')+'</div><button class="btn sm ghost" data-act="cview">回客人頁</button></div>';
   var now=Date.now();
   if(ui.tab==='book'){
@@ -238,6 +252,7 @@ function vAdmin(){
     h+=A.services.map(svcForm).join('')+svcForm({});
     h+='<div class="card"><h3>練習期階梯價</h3>'+A.tiers.map(function(t,i){return '<div>第 '+(i+1)+' 階：到第 '+esc(t.upto)+' 位為止，'+money(t.price)+'</div>';}).join('')+'<div class="mute">超過最後一階就恢復原價。級距的修改畫面在第 2 期加入。</div></div>';
   }
+  if(ui.tab==='cust'){ h+= ui.cust ? vCustDetail() : vCustList(); }
   if(ui.tab==='set'){
     h+='<div class="card"><h3>設定</h3><div class="mute">有新預約或取消時，LINE 會直接通知你。</div>'+
       '<label>預約頁上方的說明文字<textarea id="st-notice">'+esc(A.settings['預約頁說明'])+'</textarea></label>'+
@@ -247,6 +262,56 @@ function vAdmin(){
   }
   return '<div class="wrap wide">'+h+'</div>';
 }
+
+/* ---------- 客戶與探索紀錄 ---------- */
+function vCustList(){
+  var h='<div class="card"><h3>客戶</h3><div class="row"><input type="text" id="c-q" value="'+esc(ui.cq)+'" placeholder="搜尋姓名、主題、牌名或任何關鍵字" style="flex:1"><button class="btn" data-act="custSearch">搜尋</button></div>';
+  if(!ui.custs) h+='<div class="mute">載入中…</div>';
+  else if(!ui.custs.length) h+='<div class="mute">'+(ui.cq?'找不到符合的客人。':'還沒有客人。')+'</div>';
+  else h+='<div class="scroll"><table><tr><th>姓名</th><th>來過</th><th>紀錄</th><th>最近預約</th></tr>'+ui.custs.map(function(c){
+    return '<tr><td><button class="lk" data-act="openCust" data-id="'+c.id+'">'+esc(c.name)+'</button></td><td>'+c.visits+' 次</td><td>'+c.recs+' 筆</td><td>'+(c.last?nice(c.last):'—')+'</td></tr>';
+  }).join('')+'</table></div>';
+  h+='</div><div class="card"><h3>手動新增客人</h3><div class="mute">給沒有透過 LINE 預約的客人用，例如朋友直接約的。</div><div class="form"><label>姓名<input type="text" id="nc-name" maxlength="30"></label><label>聯絡方式（選填）<input type="text" id="nc-contact" maxlength="60"></label></div><div><button class="btn ghost" data-act="newCust">新增</button></div></div>';
+  return h;
+}
+function recForm(){
+  var r=ui.editRec||ui.prefill||{}, editing=!!(ui.editRec&&ui.editRec.id);
+  var svcNames=(A.services||[]).map(function(x){return x.name;});
+  if(r.service && svcNames.indexOf(r.service)<0) svcNames.push(r.service);
+  var today=new Date(Date.now()+8*3600e3).toISOString().slice(0,10);
+  return '<div class="card"><h3>'+(editing?'編輯探索紀錄':'新增探索紀錄')+'</h3>'+
+    '<div class="form"><label>日期<input type="date" id="r-date" value="'+esc(r.date||today)+'"></label>'+
+    '<label>服務<select id="r-service">'+svcNames.map(function(n){return '<option '+(n===r.service?'selected':'')+'>'+esc(n)+'</option>';}).join('')+'</select></label>'+
+    '<label>主題<select id="r-topic">'+TOPICS.map(function(t){return '<option '+(t===r.topic?'selected':'')+'>'+t+'</option>';}).join('')+'</select></label></div>'+
+    '<label>客人提出的問題<textarea id="r-question" maxlength="1000">'+esc(r.question||'')+'</textarea></label>'+
+    '<label>抽到的牌<input type="text" id="r-cards" maxlength="300" value="'+esc(r.cards||'')+'" placeholder="例如：勇氣、轉變、豐盛"></label>'+
+    '<label>禪卡解讀紀錄<textarea id="r-reading" maxlength="4000" style="min-height:120px">'+esc(r.reading||'')+'</textarea></label>'+
+    '<label>我的私人備註（只有你看得到）<textarea id="r-memo" maxlength="2000">'+esc(r.memo||'')+'</textarea></label>'+
+    '<div class="row"><button class="btn" data-act="saveRec">儲存紀錄</button>'+((editing||ui.prefill)?'<button class="btn ghost" data-act="cancelRec">取消</button>':'')+'</div></div>';
+}
+function vCustDetail(){
+  var c=ui.cust.customer, bs=ui.cust.bookings, rs=ui.cust.records;
+  var h='<div><button class="btn sm ghost" data-act="custBack">回客戶列表</button></div>';
+  h+='<div class="card"><div class="row between"><h2 style="font-size:20px">'+esc(c.name)+'</h2>'+(c.viaLine?'<span class="tag">LINE 預約</span>':'<span class="tag">手動建立</span>')+'</div>'+
+    '<div class="row"><span class="tag">首次 '+(c.first?nice(c.first):'—')+'</span><span class="tag">來過 '+bs.filter(function(b){return b.status==='已確認'||b.status==='已完成';}).length+' 次</span>'+(c.noShow>0?'<span class="tag" style="color:var(--crit)">未出席 '+c.noShow+' 次</span>':'')+'</div>'+
+    '<div class="form"><label>姓名<input type="text" id="cu-name" maxlength="30" value="'+esc(c.name)+'"></label><label>聯絡方式<input type="text" id="cu-contact" maxlength="60" value="'+esc(c.contact||'')+'"></label></div>'+
+    '<div class="row"><button class="btn sm ghost" data-act="saveCust">儲存資料</button><button class="btn sm danger" data-act="delCust">刪除這位客人的資料</button></div></div>';
+  h+=recForm();
+  h+='<div class="card"><h3>探索歷程（'+rs.length+'）</h3>'+(rs.length?rs.map(function(r){
+    return '<div class="rec"><div class="row between"><b>'+nice(r.date)+'　'+esc(r.service)+'</b><span class="tag">'+esc(r.topic)+'</span></div>'+
+      (r.question?'<div><span class="mute">問題：</span><span class="pre">'+esc(r.question)+'</span></div>':'')+
+      (r.cards?'<div><span class="mute">抽到的牌：</span>'+esc(r.cards)+'</div>':'')+
+      (r.reading?'<div class="pre">'+esc(r.reading)+'</div>':'')+
+      (r.memo?'<div class="private pre">私人備註：'+esc(r.memo)+'</div>':'')+
+      '<div class="row"><button class="btn sm ghost" data-act="editRec" data-id="'+r.id+'">編輯</button><button class="btn sm ghost" data-act="delRec" data-id="'+r.id+'">刪除</button></div></div>';
+  }).join(''):'<div class="mute">還沒有紀錄。服務結束後，在上面寫下這次的探索。</div>')+'</div>';
+  h+='<div class="card"><h3>預約紀錄</h3>'+(bs.length?'<div class="scroll"><table><tr><th>日期</th><th>服務</th><th>狀態</th><th>金額</th><th>收款</th></tr>'+bs.map(function(b){
+    return '<tr><td>'+nice(b.date)+' '+b.time+'</td><td>'+esc(b.service_name)+'</td><td><span class="pill s-'+b.status+'">'+b.status+'</span></td><td>'+money(b.price)+'</td><td>'+(b.paid==='已收款'?esc(b.method||'已收款'):'未收款')+'</td></tr>';
+  }).join('')+'</table></div>':'<div class="mute">沒有預約紀錄。</div>')+'</div>';
+  return h;
+}
+async function loadCusts(){ ui.custs = await api('adminCustomers',{ q:ui.cq }); }
+async function loadCust(id){ ui.cust = await api('adminCustomer',{ customerId:id }); }
 
 /* ---------- 動作 ---------- */
 var val=function(id){ var el=$(id); return el?el.value.trim():''; };
@@ -261,9 +326,16 @@ var ACT={
     if(D.isFriend===false) throw new Error('請先加入官方帳號好友');
     if(!$('f-agree').checked) throw new Error('請先勾選同意資料使用說明');
     try{
+      ui.doneName=val('f-name');
       ui.done=await api('book',{ serviceId:ui.svc, slotId:ui.slot, name:val('f-name'), contact:val('f-contact'), topic:val('f-topic'), agree:true });
       ui.step=4;
     }catch(e){ await loadC(); ui.step=2; ui.slot=null; throw e; }
+  },
+  sendBack:function(){
+    var d=ui.done;
+    var text='我已完成預約\n姓名：'+(ui.doneName||D.name||'')+'\n服務：'+d.service+'\n時間：'+nice(d.date)+' '+d.time+'\n費用：NT$ '+d.price;
+    var url=OA_MSG_URL+encodeURIComponent(text);
+    try{ liff.openWindow({ url:url, external:false }); }catch(e){ location.href=url; }
   },
   addFriend:function(){
     try{ liff.openWindow({ url:OA_ADD_URL, external:false }); }catch(e){ location.href = OA_ADD_URL; }
@@ -281,7 +353,42 @@ var ACT={
     else throw new Error('這是管理者專用的入口');
   },
   cview:async function(){ ui.view='c'; ui.step=1; await loadC(); },
-  tab:function(d){ ui.tab=d.t; },
+  tab:async function(d){ ui.tab=d.t; if(d.t==='cust'){ ui.cust=null; ui.editRec=null; ui.prefill=null; await loadCusts(); } },
+  custSearch:async function(){ ui.cq=val('c-q'); await loadCusts(); },
+  custBack:async function(){ ui.cust=null; ui.editRec=null; ui.prefill=null; await loadCusts(); },
+  openCust:async function(d){
+    ui.tab='cust'; ui.editRec=null; ui.prefill=null;
+    await loadCust(d.id);
+    if(d.bid){
+      var b=ui.cust.bookings.filter(function(x){return x.id===d.bid;})[0];
+      if(b && !ui.cust.records.some(function(r){return r.booking_id===b.id;})) ui.prefill={ date:b.date, service:b.service_name, question:b.topic||'', bookingId:b.id };
+    }
+    window.scrollTo(0,0);
+  },
+  newCust:async function(){
+    var r=await api('adminSaveCustomer',{ customer:{ name:val('nc-name'), contact:val('nc-contact') } });
+    await loadCust(r.id); toast('已新增客人');
+  },
+  saveCust:async function(){
+    await api('adminSaveCustomer',{ customer:{ id:ui.cust.customer.id, name:val('cu-name'), contact:val('cu-contact') } });
+    await loadCust(ui.cust.customer.id); toast('資料已儲存');
+  },
+  delCust:async function(){
+    if(!window.confirm('確定要刪除「'+ui.cust.customer.name+'」的資料和所有探索紀錄嗎？刪除後無法復原。')) return;
+    await api('adminDeleteCustomer',{ customerId:ui.cust.customer.id });
+    ui.cust=null; await loadCusts(); toast('已刪除');
+  },
+  saveRec:async function(){
+    var base=ui.editRec||ui.prefill||{};
+    await api('adminSaveRecord',{ record:{ id:base.id||'', bookingId:base.bookingId||base.booking_id||'', customerId:ui.cust.customer.id, date:val('r-date'), service:val('r-service'), topic:val('r-topic'), question:val('r-question'), cards:val('r-cards'), reading:val('r-reading'), memo:val('r-memo') } });
+    ui.editRec=null; ui.prefill=null; await loadCust(ui.cust.customer.id); toast('紀錄已儲存');
+  },
+  editRec:function(d){ ui.editRec=ui.cust.records.filter(function(r){return r.id===d.id;})[0]||null; ui.prefill=null; window.scrollTo(0,0); },
+  cancelRec:function(){ ui.editRec=null; ui.prefill=null; },
+  delRec:async function(d){
+    if(!window.confirm('確定要刪除這筆紀錄嗎？')) return;
+    await api('adminDeleteRecord',{ recordId:d.id }); await loadCust(ui.cust.customer.id);
+  },
   addSlots:async function(){
     var times=val('sl-times').replace(/，/g,',').replace(/：/g,':').split(',').map(function(t){ t=t.trim(); return /^\d:\d\d$/.test(t)?'0'+t:t; }).filter(Boolean);
     var r=await api('adminAddSlots',{ date:val('sl-date'), times:times }); await loadA(); toast('已加入 '+r.added+' 個時段');
@@ -299,6 +406,7 @@ var CHG={
   paid:async function(d,v){ await api('adminSetBooking',{ bookingId:d.id, paid:v==='未收款'?'未收款':'已收款', method:v==='未收款'?'':v }); await loadA(); }
 };
 document.addEventListener('click',function(e){ var el=e.target.closest('[data-act]'); if(!el||el.disabled) return; run(function(){ return ACT[el.dataset.act](el.dataset); }); });
+document.addEventListener('keydown',function(e){ if(e.key==='Enter' && e.target.id==='c-q'){ e.preventDefault(); run(function(){ return ACT.custSearch(); }); } });
 document.addEventListener('change',function(e){ var el=e.target.closest('[data-chg]'); if(!el) return; run(function(){ return CHG[el.dataset.chg](el.dataset, el.value); }); });
 
 function render(){
